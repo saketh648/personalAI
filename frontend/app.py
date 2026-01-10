@@ -1,9 +1,17 @@
 import streamlit as st
 import requests
 import plotly.io as pio
+import os                       # Added this
+from dotenv import load_dotenv  # Added this
+
+# Load environment variables from .env
+load_dotenv()
 
 st.set_page_config(page_title="AI Data Analyst", layout="wide")
 st.title("🤖 AI Data Analyst")
+
+# Get the Backend URL from .env or default to localhost
+BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
 
 uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
 query = st.text_input("What should I do with this data?")
@@ -15,7 +23,9 @@ if uploaded_file is not None:
         
         with st.spinner("AI is thinking and coding..."):
             try:
-                res = requests.post("http://127.0.0.1:8000/analyze", files=files, params=params)
+                # UPDATED: Use the BACKEND_URL variable here
+                res = requests.post(f"{BACKEND_URL}/analyze", files=files, params=params)
+                
                 if res.status_code == 200:
                     data = res.json()
                     
