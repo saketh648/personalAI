@@ -1,4 +1,5 @@
-# --- Frontend ---
 streamlit
 requests
 plotly
+python-dotenv
+pandas
