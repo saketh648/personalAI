@@ -14,6 +14,7 @@ numpy
 sqlparse
 pyarrow
 pyyaml
+plotly
 
 # --- Data Quality (The DE Special) ---
 pydantic
