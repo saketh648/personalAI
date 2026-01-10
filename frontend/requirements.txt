@@ -1,0 +1,4 @@
+# --- Frontend ---
+streamlit
+requests
+plotly

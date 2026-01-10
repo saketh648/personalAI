@@ -1,0 +1,15 @@
+# --- Frontend ---
+streamlit
+requests
+plotly
+
+# --- Backend / Data Engineering ---
+fastapi
+uvicorn[standard]
+google-genai
+python-dotenv
+pandas
+numpy
+sqlparse
+pyarrow
+pydantic
