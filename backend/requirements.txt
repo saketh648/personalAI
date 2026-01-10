@@ -1,1 +1,19 @@
-GEMINI_API_KEY=AIzaSyAV9mar9-X5erDjyvvHK2kZbM9f6u70Lcw
+# --- Web & API ---
+fastapi
+uvicorn[standard]
+requests
+python-multipart
+
+# --- AI & Logic ---
+google-genai
+python-dotenv
+
+# --- Data Engineering Essentials ---
+pandas
+numpy
+sqlparse
+pyarrow
+pyyaml
+
+# --- Data Quality (The DE Special) ---
+pydantic
