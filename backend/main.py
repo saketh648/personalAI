@@ -73,4 +73,10 @@ async def analyze_data(file: UploadFile = File(...), user_query: str = ""):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    # Render provides a $PORT environment variable. 
+    # If it's not found (like when you run locally), it defaults to 8000.
+    port = int(os.environ.get("PORT", 8000))
+    
+    # host="0.0.0.0" makes the server accessible to the outside world.
+    # We use "main:app" as a string to allow for better process handling.
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
