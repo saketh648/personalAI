@@ -9,105 +9,107 @@ from dotenv import load_dotenv
 import plotly.io as pio
 import plotly.express as px
 
-# 1. Setup & Config
 load_dotenv()
 app = FastAPI()
 
-# Security: Allow your frontend to talk to this backend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, replace with your Streamlit URL
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Initialize Gemini Client
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 def get_metadata_map(df):
-    """
-    PERCEPTION MODULE: 
-    Extracts structural and statistical metadata without raw values.
-    This ensures data sovereignty as raw PII never leaves this server.
-    """
+    """PERCEPTION: Extracts metadata and small safe samples to guide the AI."""
     return {
         "columns": list(df.columns),
         "data_types": {col: str(dtype) for col, dtype in df.dtypes.items()},
         "null_counts": df.isnull().sum().to_dict(),
-        "shape": df.shape,
-        "numeric_summary": df.describe().to_dict() # High-level stats, not raw rows
+        "example_values": {col: df[col].dropna().unique()[:3].tolist() for col in df.columns},
+        "numeric_summary": df.describe().to_dict()
     }
+
+@app.get("/")
+async def health_check():
+    return {"status": "Agentic Backend Online"}
 
 @app.post("/analyze")
 async def analyze_data(file: UploadFile = File(...), user_query: str = ""):
     try:
-        # 2. LOAD DATA (Local only)
+        # 1. LOAD DATA
         contents = await file.read()
         df = pd.read_csv(io.BytesIO(contents))
-        
-        # 3. PERCEPTION: Extract metadata map
         meta_map = get_metadata_map(df)
         
-        # 4. COGNITIVE: Agentic Reasoning
-        # We only send the metadata to the AI, keeping raw data private.
+        # 2. INTENT ROUTING: Determine if user wants info or action
+        router_prompt = f"""
+        User Query: {user_query}
+        Metadata: {meta_map}
+        
+        Is this a question ABOUT the data (INFO) or a request to DO SOMETHING to the data (ACTION)?
+        Reply with ONLY 'INFO' or 'ACTION'.
+        """
+        router_res = client.models.generate_content(model="gemini-2.5-flash", contents=router_prompt)
+        intent = router_res.text.strip().upper()
+
+        # --- BRANCH A: DATA INFO (Chat Answer) ---
+        if "INFO" in intent and "ACTION" not in intent:
+            chat_prompt = f"""
+            User asks: {user_query}
+            Based ONLY on this metadata: {meta_map}, answer the user's question. 
+            Be concise and professional.
+            """
+            chat_res = client.models.generate_content(model="gemini-2.0-flash", contents=chat_prompt)
+            return {
+                "chat_answer": chat_res.text,
+                "ai_code": "# Info query - no execution needed",
+                "metadata_analysed": meta_map,
+                "data_preview": df.head(10).to_dict(orient="records")
+            }
+
+        # --- BRANCH B: DATA ACTION (Code Execution) ---
         agent_prompt = f"""
         You are a Senior Data Engineering Agent.
-        
         USER QUERY: {user_query}
+        METADATA MAP: {meta_map}
         
-        METADATA MAP (Your only view of the data):
-        {meta_map}
+        TASK: Generate Python code to clean and visualize the data.
         
-        TASK:
-        1. Identify data quality issues based on null_counts and data_types.
-        2. Plan a cleaning strategy (e.g., fill nulls in numeric columns with mean).
-        3. Write Python code to execute the plan and answer the user query.
-        
-        RULES:
-        - DATA INTEGRITY: Do not rename, encode, or map categorical values (e.g., keep 'Laptop', do not change to 'A').
-        - CLEANING: Only address missing values (NaN). Use fillna with mean/median for numbers and 'Unknown' or mode for text.
-        - CONSISTENCY: If the 'Region' column has mixed casing (e.g., 'north' vs 'North'), standardize it to Title Case.
-        - LIBRARIES: Use 'df' as the variable, plotly.express as 'px', and store the chart in 'fig'.
-        - OUTPUT: Provide ONLY the Python code block (no prose or explanations).
-        - INTEGERS: For columns like 'Quantity' or 'Age', if you fill missing values, use the MEDIAN or MODE and ensure the result is a whole number (int).
-        - CLEANING: Use 'fillna' logic that makes sense for the data type. 
-        - DO NOT create decimals for discrete counts.
+        STRICT RULES:
+        1. DATA INTEGRITY: Keep original names (e.g., 'Laptop'). NEVER map to 'A, B, C'.
+        2. CLEANING: Use MEDIAN for numeric nulls (Age, Quantity) to avoid decimals.
+        3. TYPING: After filling nulls, cast 'Age' and 'Quantity' to int: .fillna(0).astype(int).
+        4. CASING: Standardize 'Region' or text columns to Title Case if inconsistent.
+        5. LIBRARIES: Use 'df', plotly.express as 'px', and store the chart in 'fig'.
+        6. OUTPUT: Provide ONLY the Python code block.
         """
         
-        # Call Gemini to generate the "Action" code
-        response = client.models.generate_content(
-            model="gemini-2.5-flash", 
-            contents=agent_prompt
-        )
+        response = client.models.generate_content(model="gemini-2.0-flash", contents=agent_prompt)
         clean_code = response.text.replace("```python", "").replace("```", "").strip()
         
-        # 5. ACTION: Local Execution (Sovereign Layer)
-        # We execute the AI's logic on the actual data locally.
+        # LOCAL EXECUTION
         local_vars = {"df": df, "px": px, "fig": None}
         exec(clean_code, {}, local_vars)
         
-        # Capture transformed data and visualization
         res_df = local_vars.get("df")
-        
-        # JSON Safety: Convert NaN/Inf to None (null) so the API doesn't crash
         res_df = res_df.replace([np.inf, -np.inf], np.nan).replace({np.nan: None})
         
         fig = local_vars.get("fig")
         fig_json = pio.to_json(fig) if fig is not None else None
         
         return {
-            "metadata_analysed": meta_map, # Transparency: Show what the AI saw
+            "metadata_analysed": meta_map,
             "ai_code": clean_code,
             "fig_json": fig_json,
             "data_preview": res_df.head(10).to_dict(orient="records")
         }
         
     except Exception as e:
-        return {"error": str(e), "ai_code": "Agent failed to generate or execute logic."}
+        return {"error": str(e), "ai_code": "Error in agent routing or execution."}
 
-# Render Deployment Config
 if __name__ == "__main__":
     import uvicorn
-    # Bind to 0.0.0.0 and the PORT provided by Render
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port)

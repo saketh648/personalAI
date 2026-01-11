@@ -38,6 +38,9 @@ if uploaded_file is not None:
                             st.json(data.get("metadata_analysed")) #
 
                         # 2. ACTION: Display the Chart
+                        if data.get("chat_answer"):
+                            st.info("💡 Agent Response:")
+                            st.write(data["chat_answer"])
                         if data.get("fig_json"):
                             fig = pio.from_json(data["fig_json"])
                             st.plotly_chart(fig, use_container_width=True)
