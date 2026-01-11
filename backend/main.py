@@ -8,6 +8,7 @@ import os
 from dotenv import load_dotenv
 import plotly.io as pio
 import plotly.express as px
+import json
 
 load_dotenv()
 app = FastAPI()
@@ -22,7 +23,7 @@ app.add_middleware(
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 def get_metadata_map(df):
-    """PERCEPTION: Extracts metadata and small safe samples to guide the AI."""
+    """PERCEPTION: Extracts metadata map with safe example values."""
     return {
         "columns": list(df.columns),
         "data_types": {col: str(dtype) for col, dtype in df.dtypes.items()},
@@ -38,61 +39,59 @@ async def health_check():
 @app.post("/analyze")
 async def analyze_data(file: UploadFile = File(...), user_query: str = ""):
     try:
-        # 1. LOAD DATA
+        # 1. LOAD DATA & PERCEIVE
         contents = await file.read()
         df = pd.read_csv(io.BytesIO(contents))
         meta_map = get_metadata_map(df)
         
-        # 2. INTENT ROUTING: Determine if user wants info or action
-        router_prompt = f"""
+        # 2. COMBINED PROMPT (Quota-Saving & Rule-Enforcing)
+        combined_prompt = f"""
         User Query: {user_query}
-        Metadata: {meta_map}
+        Metadata Map: {meta_map}
         
-        Is this a question ABOUT the data (INFO) or a request to DO SOMETHING to the data (ACTION)?
-        Reply with ONLY 'INFO' or 'ACTION'.
-        """
-        router_res = client.models.generate_content(model="gemini-2.5-flash", contents=router_prompt)
-        intent = router_res.text.strip().upper()
+        TASK:
+        1. Determine if intent is INFO (questions about data) or ACTION (cleaning/plotting).
+        2. Provide response in EXACT JSON format.
 
-        # --- BRANCH A: DATA INFO (Chat Answer) ---
-        if "INFO" in intent and "ACTION" not in intent:
-            chat_prompt = f"""
-            User asks: {user_query}
-            Based ONLY on this metadata: {meta_map}, answer the user's question. 
-            Be concise and professional.
-            """
-            chat_res = client.models.generate_content(model="gemini-2.0-flash", contents=chat_prompt)
+        STRICT RULES FOR 'ACTION' CONTENT:
+        - DATA INTEGRITY: Keep original names (e.g., 'Laptop'). NEVER map to 'A, B, C'.
+        - NUMERIC CLEANING: Use MEDIAN for nulls in Age and Quantity to handle outliers.
+        - DATA TYPING: Cast Age and Quantity to int after filling: .fillna(0).astype(int).
+        - TEXT CLEANING: Standardize 'Region' or text columns to Title Case if inconsistent.
+        - LIBRARIES: Use 'df' for data, 'px' for plotly, and save chart to 'fig'.
+        - OUTPUT: Provide ONLY valid Python code in the 'content' field.
+
+        STRICT JSON OUTPUT FORMAT:
+        {{
+            "intent": "INFO" or "ACTION",
+            "content": "Your text answer if INFO, or your Python code if ACTION"
+        }}
+        """
+
+        # Single call to save free-tier quota
+        response = client.models.generate_content(
+            model="gemini-2.0-flash", 
+            contents=combined_prompt,
+            config={'response_mime_type': 'application/json'}
+        )
+        
+        # 3. PARSE AND EXECUTE
+        res_data = json.loads(response.text)
+        intent = res_data.get("intent")
+        content = res_data.get("content")
+
+        if intent == "INFO":
             return {
-                "chat_answer": chat_res.text,
-                "ai_code": "# Info query - no execution needed",
+                "chat_answer": content,
                 "metadata_analysed": meta_map,
                 "data_preview": df.head(10).to_dict(orient="records")
             }
-
-        # --- BRANCH B: DATA ACTION (Code Execution) ---
-        agent_prompt = f"""
-        You are a Senior Data Engineering Agent.
-        USER QUERY: {user_query}
-        METADATA MAP: {meta_map}
         
-        TASK: Generate Python code to clean and visualize the data.
-        
-        STRICT RULES:
-        1. DATA INTEGRITY: Keep original names (e.g., 'Laptop'). NEVER map to 'A, B, C'.
-        2. CLEANING: Use MEDIAN for numeric nulls (Age, Quantity) to avoid decimals.
-        3. TYPING: After filling nulls, cast 'Age' and 'Quantity' to int: .fillna(0).astype(int).
-        4. CASING: Standardize 'Region' or text columns to Title Case if inconsistent.
-        5. LIBRARIES: Use 'df', plotly.express as 'px', and store the chart in 'fig'.
-        6. OUTPUT: Provide ONLY the Python code block.
-        """
-        
-        response = client.models.generate_content(model="gemini-2.0-flash", contents=agent_prompt)
-        clean_code = response.text.replace("```python", "").replace("```", "").strip()
-        
-        # LOCAL EXECUTION
+        # ACTION: Local Execution (Sovereign Layer)
         local_vars = {"df": df, "px": px, "fig": None}
-        exec(clean_code, {}, local_vars)
+        exec(content, {}, local_vars)
         
+        # Capture cleaned dataframe and chart
         res_df = local_vars.get("df")
         res_df = res_df.replace([np.inf, -np.inf], np.nan).replace({np.nan: None})
         
@@ -101,13 +100,15 @@ async def analyze_data(file: UploadFile = File(...), user_query: str = ""):
         
         return {
             "metadata_analysed": meta_map,
-            "ai_code": clean_code,
+            "ai_code": content,
             "fig_json": fig_json,
             "data_preview": res_df.head(10).to_dict(orient="records")
         }
         
     except Exception as e:
-        return {"error": str(e), "ai_code": "Error in agent routing or execution."}
+        if "429" in str(e):
+            return {"error": "API quota reached. Please wait 60 seconds."}
+        return {"error": str(e), "ai_code": "Error in agent execution."}
 
 if __name__ == "__main__":
     import uvicorn
