@@ -14,7 +14,8 @@ numpy
 sqlparse
 pyarrow
 pyyaml
-plotly
+plot
+ly
 json
 
 # --- Data Quality (The DE Special) ---
