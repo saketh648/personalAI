@@ -70,7 +70,7 @@ async def analyze_data(file: UploadFile = File(...), user_query: str = ""):
 
         # Single call to save free-tier quota
         response = client.models.generate_content(
-            model="gemini-2.0-flash", 
+            model="gemini-2.5-flash", 
             contents=combined_prompt,
             config={'response_mime_type': 'application/json'}
         )
