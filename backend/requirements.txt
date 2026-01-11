@@ -15,6 +15,7 @@ sqlparse
 pyarrow
 pyyaml
 plotly
+json
 
 # --- Data Quality (The DE Special) ---
 pydantic
