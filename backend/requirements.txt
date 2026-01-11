@@ -10,13 +10,11 @@ python-dotenv
 
 # --- Data Engineering Essentials ---
 pandas
-numpy
+numpy>=2.1.0
 sqlparse
 pyarrow
 pyyaml
-plot
-ly
-json
+plotly
 
 # --- Data Quality (The DE Special) ---
 pydantic
