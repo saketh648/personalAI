@@ -69,6 +69,9 @@ async def analyze_data(file: UploadFile = File(...), user_query: str = ""):
         - CONSISTENCY: If the 'Region' column has mixed casing (e.g., 'north' vs 'North'), standardize it to Title Case.
         - LIBRARIES: Use 'df' as the variable, plotly.express as 'px', and store the chart in 'fig'.
         - OUTPUT: Provide ONLY the Python code block (no prose or explanations).
+        - INTEGERS: For columns like 'Quantity' or 'Age', if you fill missing values, use the MEDIAN or MODE and ensure the result is a whole number (int).
+        - CLEANING: Use 'fillna' logic that makes sense for the data type. 
+        - DO NOT create decimals for discrete counts.
         """
         
         # Call Gemini to generate the "Action" code
