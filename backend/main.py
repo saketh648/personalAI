@@ -64,10 +64,11 @@ async def analyze_data(file: UploadFile = File(...), user_query: str = ""):
         3. Write Python code to execute the plan and answer the user query.
         
         RULES:
-        - Use 'df' as the dataframe variable.
-        - Use plotly.express (as px) for charts.
-        - Store the final chart in 'fig'.
-        - Provide ONLY the Python code block (no explanations).
+        - DATA INTEGRITY: Do not rename, encode, or map categorical values (e.g., keep 'Laptop', do not change to 'A').
+        - CLEANING: Only address missing values (NaN). Use fillna with mean/median for numbers and 'Unknown' or mode for text.
+        - CONSISTENCY: If the 'Region' column has mixed casing (e.g., 'north' vs 'North'), standardize it to Title Case.
+        - LIBRARIES: Use 'df' as the variable, plotly.express as 'px', and store the chart in 'fig'.
+        - OUTPUT: Provide ONLY the Python code block (no prose or explanations).
         """
         
         # Call Gemini to generate the "Action" code
